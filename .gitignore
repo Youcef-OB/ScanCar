@@ -1,0 +1,11 @@
+node_modules
+dist
+.dist
+Dist
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+npm-debug.log*
+playwright-report
+test-results
+.DS_Store
