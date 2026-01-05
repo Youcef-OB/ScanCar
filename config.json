@@ -5,5 +5,7 @@
   "maxPrice": 50000,
   "minYear": 2016,
   "maxMileage": 200000,
-  "region": "grand_est"
+  "region": "grand_est",
+  "city": "Metz",
+  "radiusKm": 50
 }

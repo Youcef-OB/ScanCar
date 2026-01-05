@@ -1,15 +1,36 @@
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
-import { chromium } from 'playwright';
+import { chromium, devices } from 'playwright';
 import { SearchFilters, CarListing } from '../shared/types.js';
 import { applyScoring } from './scoring.js';
+import { loadDefaultFilters } from './config.js';
 
-const CONFIG_PATH = path.resolve('config.json');
 const DATA_PATH = path.resolve('data/listings.json');
+const USER_AGENTS = [
+  devices['Desktop Chrome']?.userAgent,
+  devices['Desktop Edge']?.userAgent,
+  devices['Desktop Safari']?.userAgent
+].filter(Boolean) as string[];
 
-export function loadFilters(): SearchFilters {
-  const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
-  return JSON.parse(raw) as SearchFilters;
+function sanitizeRadius(radiusKm: number): number {
+  const safeRadius = Number.isFinite(radiusKm) ? radiusKm : 30;
+  return Math.min(Math.max(safeRadius, 5), 500);
+}
+
+function buildLocation(filters: SearchFilters): string | undefined {
+  const city = filters.city?.trim();
+  if (!city) return undefined;
+
+  const radiusMeters = sanitizeRadius(filters.radiusKm) * 1000;
+  const locations = [
+    {
+      locationType: 'city',
+      city,
+      geoRadius: radiusMeters
+    }
+  ];
+
+  return JSON.stringify(locations);
 }
 
 function buildSearchUrl(filters: SearchFilters): string {
@@ -23,57 +44,90 @@ function buildSearchUrl(filters: SearchFilters): string {
     year: `${filters.minYear}-`,
     sort: 'date'
   });
+
+  const locations = buildLocation(filters);
+  if (locations) {
+    params.set('search_in', 'around');
+    params.set('locations', locations);
+  }
+
   return `${base}?${params.toString()}`;
 }
 
 async function extractListings(filters: SearchFilters): Promise<CarListing[]> {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  const searchUrl = buildSearchUrl(filters);
-  await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+  const context = await browser.newContext({
+    userAgent: USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] ?? devices['Desktop Chrome'].userAgent,
+    viewport: { width: 1366, height: 768 },
+    locale: 'fr-FR'
+  });
+  const page = await context.newPage();
 
-  await page.waitForSelector('[data-qa-id="aditem_container"]', { timeout: 10000 }).catch(() => undefined);
-
-  const listings = await page.$$eval('[data-qa-id="aditem_container"]', (cards) => {
-    return cards.map((card) => {
-      const title = (card.querySelector('[data-qa-id="aditem_title"]') as HTMLElement)?.innerText?.trim() || 'Annonce';
-      const priceText = (card.querySelector('[data-qa-id="aditem_price"]') as HTMLElement)?.innerText?.replace(/[^0-9]/g, '') || '0';
-      const price = Number(priceText);
-      const details = Array.from(card.querySelectorAll('[data-qa-id="aditem_features"][data-test-id] li'))
-        .map((el) => (el as HTMLElement).innerText.trim());
-      const year = Number(details.find((d) => /^\d{4}$/.test(d)) || 0);
-      const mileageText = details.find((d) => d.toLowerCase().includes('km')) || '0';
-      const mileage = Number(mileageText.replace(/[^0-9]/g, ''));
-      const location = (card.querySelector('[data-qa-id="aditem_location"]') as HTMLElement)?.innerText?.trim() || 'Inconnue';
-      const image = (card.querySelector('picture img') as HTMLImageElement)?.src || '';
-      const url = (card.querySelector('a[data-qa-id="aditem_container"]') as HTMLAnchorElement)?.href || '';
-
-      return {
-        id: url || `${title}-${price}`,
-        title,
-        price,
-        year,
-        mileage,
-        location,
-        image,
-        url,
-        score: 0,
-        priceDelta: 0
-      } satisfies CarListing;
-    });
+  await page.setExtraHTTPHeaders({
+    'Accept-Language': 'fr-FR,fr;q=0.9'
   });
 
-  await browser.close();
-  return listings.filter((item) => item.price > 0 && item.year >= filters.minYear);
+  await page.route('**/*', (route) => {
+    const type = route.request().resourceType();
+    if (['image', 'media', 'font'].includes(type)) return route.abort();
+    return route.continue();
+  });
+
+  try {
+    const searchUrl = buildSearchUrl(filters);
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(1200 + Math.random() * 1000);
+    await page.waitForSelector('[data-qa-id="aditem_container"]', { timeout: 12000 }).catch(() => undefined);
+
+    const htmlSnapshot = await page.content();
+    if (/captcha/i.test(htmlSnapshot) || /trop de demandes/i.test(htmlSnapshot)) {
+      throw new Error('Accès restreint par Leboncoin : captcha ou limitation détectée');
+    }
+
+    const listings = await page.$$eval('[data-qa-id="aditem_container"]', (cards) => {
+      return cards.map((card) => {
+        const title = (card.querySelector('[data-qa-id="aditem_title"]') as HTMLElement)?.innerText?.trim() || 'Annonce';
+        const priceText = (card.querySelector('[data-qa-id="aditem_price"]') as HTMLElement)?.innerText?.replace(/[^0-9]/g, '') || '0';
+        const price = Number(priceText);
+        const details = Array.from(card.querySelectorAll('[data-qa-id="aditem_features"][data-test-id] li'))
+          .map((el) => (el as HTMLElement).innerText.trim());
+        const year = Number(details.find((d) => /^\d{4}$/.test(d)) || 0);
+        const mileageText = details.find((d) => d.toLowerCase().includes('km')) || '0';
+        const mileage = Number(mileageText.replace(/[^0-9]/g, ''));
+        const location = (card.querySelector('[data-qa-id="aditem_location"]') as HTMLElement)?.innerText?.trim() || 'Inconnue';
+        const image = (card.querySelector('picture img') as HTMLImageElement)?.src || '';
+        const url = (card.querySelector('a[data-qa-id="aditem_container"]') as HTMLAnchorElement)?.href || '';
+
+        return {
+          id: url || `${title}-${price}`,
+          title,
+          price,
+          year,
+          mileage,
+          location,
+          image,
+          url,
+          score: 0,
+          priceDelta: 0
+        } satisfies CarListing;
+      });
+    });
+
+    return listings.filter((item) => item.price > 0 && item.year >= filters.minYear);
+  } finally {
+    await page.waitForTimeout(500 + Math.random() * 800);
+    await context.close();
+    await browser.close();
+  }
 }
 
 export async function runScraper(filters?: SearchFilters): Promise<CarListing[]> {
-  const activeFilters = filters ?? loadFilters();
+  const activeFilters = filters ?? (await loadDefaultFilters());
   console.log('Running scraper with filters:', activeFilters);
   const rawListings = await extractListings(activeFilters);
   const scored = applyScoring(rawListings);
-  fs.mkdirSync(path.dirname(DATA_PATH), { recursive: true });
-  fs.writeFileSync(DATA_PATH, JSON.stringify(scored, null, 2), 'utf-8');
+  await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
+  await fs.writeFile(DATA_PATH, JSON.stringify(scored, null, 2), 'utf-8');
   console.log(`Saved ${scored.length} listings to ${DATA_PATH}`);
   return scored;
 }
