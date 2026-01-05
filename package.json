@@ -8,7 +8,8 @@
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "build": "npm run build:client && npm run build:server",
-    "start": "npm run build && node dist/server/index.js",
+    "start": "npm run build && node dist/server/server/index.js",
+    "postinstall": "playwright install chromium",
     "preview": "vite preview",
     "scrape": "ts-node --project tsconfig.server.json server/scraper.ts"
   },
