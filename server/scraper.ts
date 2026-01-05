@@ -7,7 +7,7 @@ import { applyScoring } from './scoring.js';
 const CONFIG_PATH = path.resolve('config.json');
 const DATA_PATH = path.resolve('data/listings.json');
 
-function loadFilters(): SearchFilters {
+export function loadFilters(): SearchFilters {
   const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
   return JSON.parse(raw) as SearchFilters;
 }
@@ -67,10 +67,10 @@ async function extractListings(filters: SearchFilters): Promise<CarListing[]> {
   return listings.filter((item) => item.price > 0 && item.year >= filters.minYear);
 }
 
-export async function runScraper(): Promise<CarListing[]> {
-  const filters = loadFilters();
-  console.log('Running scraper with filters:', filters);
-  const rawListings = await extractListings(filters);
+export async function runScraper(filters?: SearchFilters): Promise<CarListing[]> {
+  const activeFilters = filters ?? loadFilters();
+  console.log('Running scraper with filters:', activeFilters);
+  const rawListings = await extractListings(activeFilters);
   const scored = applyScoring(rawListings);
   fs.mkdirSync(path.dirname(DATA_PATH), { recursive: true });
   fs.writeFileSync(DATA_PATH, JSON.stringify(scored, null, 2), 'utf-8');
