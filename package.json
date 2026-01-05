@@ -8,7 +8,8 @@
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "build": "npm run build:client && npm run build:server",
-    "start": "npm run build && node dist/server/index.js",
+    "start": "npm run build && node dist/server/server/index.js",
+    "postinstall": "playwright install chromium",
     "preview": "vite preview",
     "scrape": "ts-node --project tsconfig.server.json server/scraper.ts"
   },
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.1.0",
+    "@types/node-schedule": "^2.1.8",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
