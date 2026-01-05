@@ -18,7 +18,7 @@ const baseFiltersSchema = z.object({
 });
 
 const searchFiltersSchema = baseFiltersSchema.refine(
-  (value) => value.maxPrice >= value.minPrice,
+  (value: z.infer<typeof baseFiltersSchema>) => value.maxPrice >= value.minPrice,
   {
     message: 'maxPrice must be greater than or equal to minPrice',
     path: ['maxPrice']
