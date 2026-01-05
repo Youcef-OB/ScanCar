@@ -1,9 +1,9 @@
 {
-  "brand": "Renault",
-  "model": "Clio",
-  "minPrice": 2000,
-  "maxPrice": 12000,
-  "minYear": 2012,
-  "maxMileage": 150000,
-  "region": "ile_de_france"
+  "brand": "Volkswagen",
+  "model": "Golf 7",
+  "minPrice": 0,
+  "maxPrice": 50000,
+  "minYear": 2016,
+  "maxMileage": 200000,
+  "region": "grand_est"
 }
