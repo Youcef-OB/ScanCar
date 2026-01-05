@@ -1,25 +1,129 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ListingCard from './components/ListingCard';
-import { CarListing } from '../shared/types';
+import { CarListing, SearchFilters } from '../shared/types';
 
 const App: React.FC = () => {
   const [listings, setListings] = useState<CarListing[]>([]);
+  const [filters, setFilters] = useState<SearchFilters>({
+    brand: '',
+    model: '',
+    minPrice: 0,
+    maxPrice: 0,
+    minYear: 0,
+    maxMileage: 0,
+    region: '',
+    city: '',
+    radiusKm: 30
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  const numericFields: (keyof SearchFilters)[] = useMemo(
+    () => ['minPrice', 'maxPrice', 'minYear', 'maxMileage', 'radiusKm'],
+    []
+  );
+
+  const featuredCities = useMemo(
+    () =>
+      [
+        'Paris',
+        'Marseille',
+        'Lyon',
+        'Toulouse',
+        'Nice',
+        'Nantes',
+        'Montpellier',
+        'Strasbourg',
+        'Bordeaux',
+        'Lille',
+        'Rennes',
+        'Metz',
+        'Nancy',
+        'Reims'
+      ],
+    []
+  );
+
+  const citySuggestions = useMemo(() => {
+    if (!filters.city) return featuredCities;
+    const needle = filters.city.toLowerCase();
+    return featuredCities.filter((city) => city.toLowerCase().includes(needle));
+  }, [featuredCities, filters.city]);
 
   useEffect(() => {
-    fetch('/api/listings')
-      .then((res) => res.json())
-      .then((data: CarListing[]) => {
+    const controller = new AbortController();
+
+    async function loadFilters() {
+      try {
+        const response = await fetch('/api/filters', { signal: controller.signal });
+        if (!response.ok) throw new Error('Unable to load default filters');
+        const data: SearchFilters = await response.json();
+        setFilters(data);
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error('Failed to load default filters', err);
+          setError('Impossible de charger les filtres par défaut');
+        }
+      }
+    }
+
+    async function loadListings() {
+      try {
+        const response = await fetch('/api/listings', { signal: controller.signal });
+        if (!response.ok) throw new Error('Unable to load listings');
+        const data: CarListing[] = await response.json();
         setListings(data);
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          console.error(err);
+          setError('Impossible de charger les annonces');
+        }
+      } finally {
         setLoading(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError('Impossible de charger les annonces');
-        setLoading(false);
-      });
+      }
+    }
+
+    loadFilters();
+    loadListings();
+
+    return () => controller.abort();
   }, []);
+
+  const handleInputChange = (field: keyof SearchFilters, value: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      [field]: numericFields.includes(field) ? Number(value) : value
+    }));
+  };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSearching(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(filters)
+      });
+
+      if (!response.ok) {
+        throw new Error('Recherche indisponible');
+      }
+
+      const data = (await response.json()) as CarListing[];
+      setListings(data);
+    } catch (err) {
+      console.error(err);
+      setError('La recherche a échoué. Merci de réessayer.');
+    } finally {
+      setSearching(false);
+    }
+  };
 
   return (
     <main className="container">
@@ -33,6 +137,119 @@ const App: React.FC = () => {
           </p>
         </div>
       </header>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Filtres dynamiques</p>
+            <h2>Relancez une recherche sans toucher au config.json</h2>
+            <p className="lead">Saisissez vos critères, lancez le scraping et consultez les nouveaux résultats en direct.</p>
+          </div>
+          <button className="cta" type="submit" form="search-form" disabled={searching}>
+            {searching ? 'Recherche en cours…' : 'Lancer la recherche'}
+          </button>
+        </div>
+
+        <form id="search-form" className="form-grid" onSubmit={handleSubmit}>
+          <label>
+            Marque
+            <input
+              type="text"
+              value={filters.brand}
+              onChange={(e) => handleInputChange('brand', e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Modèle
+            <input
+              type="text"
+              value={filters.model}
+              onChange={(e) => handleInputChange('model', e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Prix min (€)
+            <input
+              type="number"
+              min={0}
+              value={filters.minPrice}
+              onChange={(e) => handleInputChange('minPrice', e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Prix max (€)
+            <input
+              type="number"
+              min={0}
+              value={filters.maxPrice}
+              onChange={(e) => handleInputChange('maxPrice', e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Année min
+            <input
+              type="number"
+              min={1990}
+              value={filters.minYear}
+              onChange={(e) => handleInputChange('minYear', e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Kilométrage max (km)
+            <input
+              type="number"
+              min={0}
+              value={filters.maxMileage}
+              onChange={(e) => handleInputChange('maxMileage', e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Région (code Leboncoin)
+            <input
+              type="text"
+              value={filters.region}
+              onChange={(e) => handleInputChange('region', e.target.value)}
+              placeholder="ex: 21 pour Grand Est"
+              required
+            />
+          </label>
+          <label>
+            Ville ciblée
+            <input
+              type="text"
+              value={filters.city}
+              list="city-suggestions"
+              onChange={(e) => handleInputChange('city', e.target.value)}
+              placeholder="Metz, Nancy, Reims…"
+            />
+            <datalist id="city-suggestions">
+              {citySuggestions.map((city) => (
+                <option key={city} value={city} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            Rayon autour de la ville (km)
+            <select
+              value={filters.radiusKm}
+              onChange={(e) => handleInputChange('radiusKm', e.target.value)}
+              disabled={!filters.city}
+            >
+              {[10, 25, 50, 75, 100, 200, 300, 500].map((radius) => (
+                <option key={radius} value={radius}>
+                  {radius} km
+                </option>
+              ))}
+            </select>
+          </label>
+        </form>
+      </section>
 
       {loading && <p>Chargement des annonces…</p>}
       {error && <p className="error">{error}</p>}
