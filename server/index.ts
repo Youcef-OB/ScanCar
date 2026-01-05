@@ -25,10 +25,8 @@ function asyncHandler<TReq extends Request, TRes extends Response>(
 
 app.get(
   '/api/listings',
-  asyncHandler(async (_req, res) => {
-    const raw = await fs.readFile(DATA_PATH, 'utf-8').catch(() => '[]');
-    const listings: CarListing[] = JSON.parse(raw);
-    res.json(listings);
+asyncHandler(async (_req, res) => {
+    res.json(await loadCachedListings());
   })
 );
 
@@ -62,8 +60,23 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 
 app.use(errorHandler);
 
+async function loadCachedListings(): Promise<CarListing[]> {
+  const raw = await fs.readFile(DATA_PATH, 'utf-8').catch(() => '[]');
+  return JSON.parse(raw);
+}
+
+async function runInitialScrape(): Promise<void> {
+  try {
+    await runScraper();
+  } catch (err) {
+    console.error('Initial scrape failed, falling back to cached listings', err);
+    const cached = await loadCachedListings();
+    console.log(`Serving ${cached.length} cached listing(s) until the next successful scrape.`);
+  }
+}
+
 async function bootstrap() {
-  await runScraper();
+  await runInitialScrape();
   schedule.scheduleJob(SCRAPE_CRON, () => {
     console.log(`Running scheduled scrape (${SCRAPE_CRON})`);
     runScraper().catch((err) => console.error('Scheduled scrape failed', err));
