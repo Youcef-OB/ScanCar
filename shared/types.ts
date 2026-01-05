@@ -6,6 +6,8 @@ export interface SearchFilters {
   minYear: number;
   maxMileage: number;
   region: string;
+  city: string;
+  radiusKm: number;
 }
 
 export interface CarListing {

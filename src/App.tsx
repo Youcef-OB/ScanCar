@@ -11,16 +11,45 @@ const App: React.FC = () => {
     maxPrice: 0,
     minYear: 0,
     maxMileage: 0,
-    region: ''
+    region: '',
+    city: '',
+    radiusKm: 30
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
 
   const numericFields: (keyof SearchFilters)[] = useMemo(
-    () => ['minPrice', 'maxPrice', 'minYear', 'maxMileage'],
+    () => ['minPrice', 'maxPrice', 'minYear', 'maxMileage', 'radiusKm'],
     []
   );
+
+  const featuredCities = useMemo(
+    () =>
+      [
+        'Paris',
+        'Marseille',
+        'Lyon',
+        'Toulouse',
+        'Nice',
+        'Nantes',
+        'Montpellier',
+        'Strasbourg',
+        'Bordeaux',
+        'Lille',
+        'Rennes',
+        'Metz',
+        'Nancy',
+        'Reims'
+      ],
+    []
+  );
+
+  const citySuggestions = useMemo(() => {
+    if (!filters.city) return featuredCities;
+    const needle = filters.city.toLowerCase();
+    return featuredCities.filter((city) => city.toLowerCase().includes(needle));
+  }, [featuredCities, filters.city]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -189,6 +218,35 @@ const App: React.FC = () => {
               placeholder="ex: 21 pour Grand Est"
               required
             />
+          </label>
+          <label>
+            Ville ciblée
+            <input
+              type="text"
+              value={filters.city}
+              list="city-suggestions"
+              onChange={(e) => handleInputChange('city', e.target.value)}
+              placeholder="Metz, Nancy, Reims…"
+            />
+            <datalist id="city-suggestions">
+              {citySuggestions.map((city) => (
+                <option key={city} value={city} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            Rayon autour de la ville (km)
+            <select
+              value={filters.radiusKm}
+              onChange={(e) => handleInputChange('radiusKm', e.target.value)}
+              disabled={!filters.city}
+            >
+              {[10, 25, 50, 75, 100, 200, 300, 500].map((radius) => (
+                <option key={radius} value={radius}>
+                  {radius} km
+                </option>
+              ))}
+            </select>
           </label>
         </form>
       </section>

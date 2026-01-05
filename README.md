@@ -14,20 +14,20 @@ npm run start
 Le script `start` construit le front, lance le serveur Node (port 3000) et exécute automatiquement un scraping initial. Une tâche planifiée relance le scraping chaque jour à 02:00 (modifiable via `SCRAPE_SCHEDULE_CRON`).
 
 ## Structure
-- `config.json` : filtres de recherche (marque, modèle, prix, année, kilométrage, région). Ils sont validés au démarrage.
+- `config.json` : filtres de recherche (marque, modèle, prix, année, kilométrage, région, ville + rayon). Ils sont validés au démarrage.
 - `server/` : serveur Express, planificateur et scraper Playwright.
 - `shared/` : types TypeScript partagés front/back.
 - `data/listings.json` : stockage local des annonces scorées.
 - `src/` : interface React (Vite) affichant les cartes d'annonces.
 
 ## Configuration des filtres
-Modifiez `config.json` pour définir les valeurs par défaut (validation stricte côté serveur) ou relancez le scraping directement depuis l’UI via le formulaire « Filtres dynamiques ». Le serveur expose également :
+Modifiez `config.json` pour définir les valeurs par défaut (validation stricte côté serveur) ou relancez le scraping directement depuis l’UI via le formulaire « Filtres dynamiques ». Vous pouvez cibler une **ville** et choisir un **rayon en km** (ex. « Metz » sur 50 km) ou laisser le champ vide pour rester au niveau régional. Le serveur expose également :
 
 - `GET /api/filters` pour récupérer les filtres par défaut
 - `POST /api/search` pour lancer un scraping avec des critères fournis en JSON
 
 ## Fonctionnement
-1. **Scraping** : Playwright (Chromium headless) ouvre l'URL de recherche Leboncoin construite à partir des filtres, extrait les cartes (titre, prix, année, kilométrage, localisation, image, lien).
+1. **Scraping** : Playwright (Chromium headless) ouvre l'URL de recherche Leboncoin construite à partir des filtres (ville + rayon pris en compte quand renseignés), extrait les cartes (titre, prix, année, kilométrage, localisation, image, lien) avec entêtes réalistes, blocage des ressources lourdes et pauses aléatoires pour limiter les risques de bannissement.
 2. **Analyse marché** : calcul du prix moyen de toutes les annonces collectées.
 3. **Scoring** : chaque annonce reçoit un score 0–100 pondérant prix (50%), kilométrage (25%), année (25%). Moins cher que la moyenne = meilleur score. L'écart de prix vs. moyenne est conservé.
 4. **Tri & stockage** : classement décroissant par score puis sauvegarde dans `data/listings.json`.

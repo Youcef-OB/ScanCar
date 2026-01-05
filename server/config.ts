@@ -5,20 +5,25 @@ import { SearchFilters } from '../shared/types.js';
 
 const CONFIG_PATH = path.resolve('config.json');
 
-const searchFiltersSchema = z
-  .object({
-    brand: z.string().min(1, 'brand is required'),
-    model: z.string().min(1, 'model is required'),
-    minPrice: z.number().int().nonnegative(),
-    maxPrice: z.number().int().positive(),
-    minYear: z.number().int().min(1900),
-    maxMileage: z.number().int().nonnegative(),
-    region: z.string().min(1, 'region is required')
-  })
-  .refine((value) => value.maxPrice >= value.minPrice, {
+const baseFiltersSchema = z.object({
+  brand: z.string().min(1, 'brand is required'),
+  model: z.string().min(1, 'model is required'),
+  minPrice: z.number().int().nonnegative(),
+  maxPrice: z.number().int().positive(),
+  minYear: z.number().int().min(1900),
+  maxMileage: z.number().int().nonnegative(),
+  region: z.string().min(1, 'region is required'),
+  city: z.string().trim().default(''),
+  radiusKm: z.number().int().positive().max(500).default(30)
+});
+
+const searchFiltersSchema = baseFiltersSchema.refine(
+  (value) => value.maxPrice >= value.minPrice,
+  {
     message: 'maxPrice must be greater than or equal to minPrice',
     path: ['maxPrice']
-  });
+  }
+);
 
 let cachedFilters: SearchFilters | null = null;
 

@@ -1,11 +1,37 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { chromium } from 'playwright';
+import { chromium, devices } from 'playwright';
 import { SearchFilters, CarListing } from '../shared/types.js';
 import { applyScoring } from './scoring.js';
 import { loadDefaultFilters } from './config.js';
 
 const DATA_PATH = path.resolve('data/listings.json');
+const USER_AGENTS = [
+  devices['Desktop Chrome']?.userAgent,
+  devices['Desktop Edge']?.userAgent,
+  devices['Desktop Safari']?.userAgent
+].filter(Boolean) as string[];
+
+function sanitizeRadius(radiusKm: number): number {
+  const safeRadius = Number.isFinite(radiusKm) ? radiusKm : 30;
+  return Math.min(Math.max(safeRadius, 5), 500);
+}
+
+function buildLocation(filters: SearchFilters): string | undefined {
+  const city = filters.city?.trim();
+  if (!city) return undefined;
+
+  const radiusMeters = sanitizeRadius(filters.radiusKm) * 1000;
+  const locations = [
+    {
+      locationType: 'city',
+      city,
+      geoRadius: radiusMeters
+    }
+  ];
+
+  return JSON.stringify(locations);
+}
 
 function buildSearchUrl(filters: SearchFilters): string {
   const base = 'https://www.leboncoin.fr/recherche';
@@ -18,18 +44,45 @@ function buildSearchUrl(filters: SearchFilters): string {
     year: `${filters.minYear}-`,
     sort: 'date'
   });
+
+  const locations = buildLocation(filters);
+  if (locations) {
+    params.set('search_in', 'around');
+    params.set('locations', locations);
+  }
+
   return `${base}?${params.toString()}`;
 }
 
 async function extractListings(filters: SearchFilters): Promise<CarListing[]> {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const context = await browser.newContext({
+    userAgent: USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] ?? devices['Desktop Chrome'].userAgent,
+    viewport: { width: 1366, height: 768 },
+    locale: 'fr-FR'
+  });
+  const page = await context.newPage();
+
+  await page.setExtraHTTPHeaders({
+    'Accept-Language': 'fr-FR,fr;q=0.9'
+  });
+
+  await page.route('**/*', (route) => {
+    const type = route.request().resourceType();
+    if (['image', 'media', 'font'].includes(type)) return route.abort();
+    return route.continue();
+  });
 
   try {
     const searchUrl = buildSearchUrl(filters);
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(1200 + Math.random() * 1000);
+    await page.waitForSelector('[data-qa-id="aditem_container"]', { timeout: 12000 }).catch(() => undefined);
 
-    await page.waitForSelector('[data-qa-id="aditem_container"]', { timeout: 10000 }).catch(() => undefined);
+    const htmlSnapshot = await page.content();
+    if (/captcha/i.test(htmlSnapshot) || /trop de demandes/i.test(htmlSnapshot)) {
+      throw new Error('Accès restreint par Leboncoin : captcha ou limitation détectée');
+    }
 
     const listings = await page.$$eval('[data-qa-id="aditem_container"]', (cards) => {
       return cards.map((card) => {
@@ -62,6 +115,8 @@ async function extractListings(filters: SearchFilters): Promise<CarListing[]> {
 
     return listings.filter((item) => item.price > 0 && item.year >= filters.minYear);
   } finally {
+    await page.waitForTimeout(500 + Math.random() * 800);
+    await context.close();
     await browser.close();
   }
 }
